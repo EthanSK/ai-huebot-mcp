@@ -125,6 +125,12 @@ export async function activateScene(sceneId: string): Promise<void> {
 export function hexToXy(hex: string): { x: number; y: number } {
   // Strip # if present
   const clean = hex.replace(/^#/, "");
+
+  if (!/^[0-9a-fA-F]{6}$/.test(clean)) {
+    throw new Error(
+      `Invalid hex color "${hex}". Expected format: #RRGGBB or RRGGBB (e.g. #FF0000)`
+    );
+  }
   const r = parseInt(clean.substring(0, 2), 16) / 255;
   const g = parseInt(clean.substring(2, 4), 16) / 255;
   const b = parseInt(clean.substring(4, 6), 16) / 255;

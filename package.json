@@ -1,19 +1,54 @@
 {
   "name": "ai-huebot",
   "version": "1.0.0",
-  "description": "AI HueBot - MCP server for controlling Philips Hue lights with vibes",
+  "description": "AI HueBot - MCP server for controlling Philips Hue lights with vibes. Set moods, control individual lights, activate scenes, and more through any MCP-compatible AI client like Claude.",
   "type": "module",
+  "main": "./dist/index.js",
   "bin": {
     "ai-huebot": "./dist/index.js"
   },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md",
+    ".env.example"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
   },
-  "keywords": ["mcp", "philips-hue", "smart-home", "lights"],
-  "author": "",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "philips-hue",
+    "hue",
+    "smart-home",
+    "smart-lights",
+    "lights",
+    "iot",
+    "ai",
+    "claude",
+    "automation",
+    "home-automation",
+    "vibe",
+    "mood-lighting"
+  ],
+  "author": "Ethan SK",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/EthanSK/hue-vibes-mcp.git"
+  },
+  "homepage": "https://github.com/EthanSK/hue-vibes-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/EthanSK/hue-vibes-mcp/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
     "dotenv": "^17.3.1",

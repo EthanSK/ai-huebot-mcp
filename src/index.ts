@@ -14,6 +14,12 @@ import {
   hexToXy,
   formatLightInfo,
 } from "./hue-api.js";
+import {
+  saveVibe,
+  listSavedVibes,
+  getSavedVibe,
+  deleteSavedVibe,
+} from "./saved-vibes.js";
 import type { LightStateUpdate } from "./types.js";
 
 const server = new McpServer({
@@ -299,11 +305,20 @@ server.tool(
         })
       );
 
+      // Auto-save the vibe configuration
+      let saveMessage = "";
+      try {
+        const saved = await saveVibe(vibe, vibe, lights);
+        saveMessage = `\nVibe saved as "${saved.name}" (${saved.slug}).`;
+      } catch (saveErr) {
+        saveMessage = `\n(Failed to auto-save vibe: ${saveErr instanceof Error ? saveErr.message : String(saveErr)})`;
+      }
+
       return {
         content: [
           {
             type: "text" as const,
-            text: `Vibe "${vibe}" applied!\n\n${results.join("\n")}`,
+            text: `Vibe "${vibe}" applied!\n\n${results.join("\n")}${saveMessage}`,
           },
         ],
         isError: failures > 0,
@@ -314,6 +329,213 @@ server.tool(
           {
             type: "text" as const,
             text: `Error setting vibe: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// --- save_vibe ---
+server.tool(
+  "save_vibe",
+  "Save the current light state as a named vibe. Captures a snapshot of specified lights with their colors and brightness so it can be re-applied later.",
+  {
+    name: z.string().describe("A memorable name for the vibe (e.g. 'sunset chill', 'deep focus')"),
+    description: z.string().optional().describe("Optional description of the vibe"),
+    lights: z.array(
+      z.object({
+        light_id: z.string().describe("The light ID"),
+        color_hex: z.string().describe("Hex color for this light (e.g. #FF6B35)"),
+        brightness: z.number().min(0).max(100).describe("Brightness percentage (0-100)"),
+      })
+    ).describe("Array of light settings to save. Use list_lights first to get current state."),
+  },
+  async ({ name, description, lights }) => {
+    try {
+      const saved = await saveVibe(name, description ?? name, lights);
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Vibe "${saved.name}" saved successfully (slug: ${saved.slug}). You can re-apply it later with apply_saved_vibe.`,
+          },
+        ],
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error saving vibe: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// --- list_saved_vibes ---
+server.tool(
+  "list_saved_vibes",
+  "List all previously saved vibes. Shows names, descriptions, and light configurations.",
+  async () => {
+    try {
+      const vibes = await listSavedVibes();
+
+      if (vibes.length === 0) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "No saved vibes found. Use set_vibe or save_vibe to create some!",
+            },
+          ],
+        };
+      }
+
+      const formatted = vibes
+        .map((v) => {
+          const lightSummary = v.lights
+            .map((l) => `  ${l.light_id}: ${l.color_hex} at ${l.brightness}%`)
+            .join("\n");
+          return `${v.name} (${v.slug})\n  Description: ${v.description}\n  Created: ${v.created_at}\n  Lights:\n${lightSummary}`;
+        })
+        .join("\n\n");
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Found ${vibes.length} saved vibe(s):\n\n${formatted}`,
+          },
+        ],
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error listing vibes: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// --- apply_saved_vibe ---
+server.tool(
+  "apply_saved_vibe",
+  "Apply a previously saved vibe by name. Restores the light configuration that was saved.",
+  {
+    name: z.string().describe("The name of the saved vibe to apply"),
+  },
+  async ({ name }) => {
+    try {
+      const vibe = await getSavedVibe(name);
+
+      if (!vibe) {
+        const available = await listSavedVibes();
+        const names = available.map((v) => v.name).join(", ");
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Vibe "${name}" not found. Available vibes: ${names || "none"}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      const results: string[] = [];
+      let failures = 0;
+
+      await Promise.allSettled(
+        vibe.lights.map(async (light) => {
+          try {
+            const state: LightStateUpdate = {
+              on: { on: true },
+              dimming: { brightness: light.brightness },
+              color: { xy: hexToXy(light.color_hex) },
+            };
+            await setLightState(light.light_id, state);
+            results.push(`${light.light_id}: set to ${light.color_hex} at ${light.brightness}%`);
+          } catch (err) {
+            failures++;
+            results.push(
+              `${light.light_id}: FAILED - ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
+        })
+      );
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Vibe "${vibe.name}" applied!\n\n${results.join("\n")}`,
+          },
+        ],
+        isError: failures > 0,
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error applying vibe: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// --- delete_saved_vibe ---
+server.tool(
+  "delete_saved_vibe",
+  "Delete a previously saved vibe by name.",
+  {
+    name: z.string().describe("The name of the saved vibe to delete"),
+  },
+  async ({ name }) => {
+    try {
+      const deleted = await deleteSavedVibe(name);
+
+      if (!deleted) {
+        const available = await listSavedVibes();
+        const names = available.map((v) => v.name).join(", ");
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Vibe "${name}" not found. Available vibes: ${names || "none"}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Vibe "${name}" deleted successfully.`,
+          },
+        ],
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error deleting vibe: ${err instanceof Error ? err.message : String(err)}`,
           },
         ],
         isError: true,

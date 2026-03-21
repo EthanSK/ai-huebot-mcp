@@ -91,3 +91,11 @@ export interface VibeLight {
   color_hex: string;
   brightness: number;
 }
+
+export interface SavedVibe {
+  name: string;
+  slug: string;
+  description: string;
+  lights: VibeLight[];
+  created_at: string;
+}
