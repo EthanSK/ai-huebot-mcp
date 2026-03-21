@@ -109,7 +109,11 @@ Any MCP-compatible client that supports stdio transport can use AI HueBot:
 | `set_light` | Set a specific light's state (on/off, brightness, color) |
 | `set_all_lights` | Set all lights to the same state |
 | `set_scene` | Activate a Hue scene by name |
-| `set_vibe` | Describe a vibe and let the AI pick the colors |
+| `set_vibe` | Describe a vibe and let the AI pick the colors (auto-saves) |
+| `save_vibe` | Save a light configuration as a named vibe |
+| `list_saved_vibes` | List all previously saved vibes |
+| `apply_saved_vibe` | Re-apply a saved vibe by name |
+| `delete_saved_vibe` | Delete a saved vibe |
 
 ## Example Usage
 
