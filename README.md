@@ -4,82 +4,48 @@
 [![license](https://img.shields.io/npm/l/ai-huebot.svg)](https://github.com/EthanSK/ai-huebot-mcp/blob/main/LICENSE)
 [![node](https://img.shields.io/node/v/ai-huebot.svg)](https://www.npmjs.com/package/ai-huebot)
 
-An MCP server for controlling Philips Hue lights via the Hue Remote API (CLIP v2). Set vibes, control individual lights, activate scenes, and more -- all through any MCP-compatible AI client like Claude.
+**Control your Philips Hue lights with AI.** Set vibes, save favorites, and let it learn your preferences over time.
+
+An [MCP](https://modelcontextprotocol.io) server that connects any AI client (Claude, etc.) to your Hue lights. Just describe the mood you want.
 
 ## Features
 
-- **OAuth authentication** -- authorizes with Philips Hue via browser, tokens refresh automatically
-- **Individual light control** -- set brightness, color, and on/off state per light
-- **Bulk control** -- set all lights at once
-- **Scene activation** -- activate any Hue scene by name
-- **Vibe mode** -- describe a mood and let the AI pick the perfect colors
+- **Vibe mode** -- say "cozy evening" or "deep focus" and the AI picks colors and brightness for every light
+- **Saved vibes** -- every vibe is auto-saved and can be re-applied later
+- **Ratings & feedback** -- rate vibes 1-10 so the AI learns what you like
+- **Favorites** -- quickly access your top-rated vibes
+- **Individual & bulk control** -- set any light or all lights at once
+- **Scene activation** -- trigger any Hue scene by name
+- **Smart hints** -- gently introduces the feedback system to new users
+- **Zero config auth** -- built-in OAuth credentials, just authorize in your browser once
 
 ## Quick Start
-
-### Install via npm (recommended)
-
-```bash
-npm install -g ai-huebot
-```
-
-Or run directly with npx:
 
 ```bash
 npx ai-huebot
 ```
 
-### Install from source
+That's it. Add it to your AI client (see below), then just ask:
 
-```bash
-git clone https://github.com/EthanSK/ai-huebot-mcp.git
-cd ai-huebot-mcp
-npm install
-npm run build
-```
+> "Set a cozy evening vibe"
 
-## Configure Environment (optional)
+> "Make the bedroom warm orange at 40%"
 
-The server ships with built-in Hue developer credentials, so it works out of the box. If you want to use your own:
+> "Rate that vibe 9 out of 10"
 
-```bash
-cp .env.example .env
-# Edit .env with your credentials
-```
+> "Apply my highest rated vibe"
 
-| Variable | Description | Default |
-|---|---|---|
-| `HUE_CLIENT_ID` | Hue API client ID | built-in |
-| `HUE_CLIENT_SECRET` | Hue API client secret | built-in |
-| `HUE_CALLBACK_URL` | OAuth callback URL | `http://localhost:8989/callback` |
+## Setup
 
-## Authorize with Philips Hue
-
-On first use, call the `hue_auth` tool from your AI client. It will open your browser to authorize with Philips Hue and save tokens to `~/.ai-huebot/tokens.json`. Tokens refresh automatically after that.
-
-## Client Configuration
-
-### Claude Code (CLI)
+### Claude Code
 
 ```bash
 claude mcp add ai-huebot -- npx ai-huebot
 ```
 
-Or add to your MCP config at `~/.claude/.mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "ai-huebot": {
-      "command": "npx",
-      "args": ["ai-huebot"]
-    }
-  }
-}
-```
-
 ### Claude Desktop
 
-Add to your Claude Desktop config at `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
 
 ```json
 {
@@ -92,47 +58,52 @@ Add to your Claude Desktop config at `~/Library/Application Support/Claude/claud
 }
 ```
 
-### Other MCP Clients
-
-Any MCP-compatible client that supports stdio transport can use AI HueBot:
+### Any MCP Client
 
 - **Command:** `npx`
 - **Args:** `["ai-huebot"]`
 - **Transport:** stdio
 
-## Available Tools
+### First Run
+
+Call the `hue_auth` tool from your AI client. It opens your browser to authorize with Philips Hue. Tokens are saved to `~/.ai-huebot/tokens.json` and refresh automatically.
+
+## Tools
 
 | Tool | Description |
 |---|---|
-| `hue_auth` | Start the OAuth authorization flow |
-| `list_lights` | List all lights with current state (on/off, brightness, color) |
-| `set_light` | Set a specific light's state (on/off, brightness, color) |
+| `hue_auth` | Authorize with Philips Hue (browser OAuth) |
+| `list_lights` | List all lights with current state |
+| `set_light` | Control a single light (on/off, brightness, color) |
 | `set_all_lights` | Set all lights to the same state |
 | `set_scene` | Activate a Hue scene by name |
-| `set_vibe` | Describe a vibe and let the AI pick the colors (auto-saves) |
-| `save_vibe` | Save a light configuration as a named vibe |
-| `list_saved_vibes` | List all previously saved vibes |
-| `apply_saved_vibe` | Re-apply a saved vibe by name |
+| `set_vibe` | Describe a mood -- AI picks colors for each light (auto-saves) |
+| `save_vibe` | Manually save a light configuration as a named vibe |
+| `list_saved_vibes` | List all saved vibes |
+| `apply_saved_vibe` | Re-apply a saved vibe |
 | `delete_saved_vibe` | Delete a saved vibe |
+| `rate_vibe` | Rate a vibe (1-10) and/or leave text feedback |
+| `get_vibe_feedback` | View all feedback, filterable by rating |
+| `get_favorites` | Get your top-rated vibes (rating >= 7) |
+| `get_user_hint` | Get a one-time hint about the feedback system |
+| `acknowledge_hint` | Dismiss the hint permanently |
 
-## Example Usage
+## How It Works
 
-Once configured, just talk to your AI naturally:
+**Auth:** OAuth 2.0 against the Hue Remote API (CLIP v2). Built-in credentials work out of the box -- or set `HUE_CLIENT_ID`, `HUE_CLIENT_SECRET`, and `HUE_CALLBACK_URL` env vars to use your own.
 
-> "Set a cozy evening vibe"
+**Vibes:** When you describe a vibe, the AI chooses hex colors and brightness for each light. The configuration is automatically saved to `~/.ai-huebot/saved-vibes/` as JSON so you can re-apply it anytime.
 
-> "Turn off all the lights"
-
-> "Make the living room light blue at 50% brightness"
-
-> "Activate the 'Movie Night' scene"
+**Feedback loop:** Rate vibes and leave feedback. The AI uses this history to suggest vibes you'll like and avoid ones you didn't. Favorites (rating >= 7) are surfaced on request.
 
 ## Development
 
 ```bash
-npm run dev    # run with tsx (auto-reload)
-npm run build  # compile TypeScript
-npm start      # run compiled output
+git clone https://github.com/EthanSK/ai-huebot-mcp.git
+cd ai-huebot-mcp
+npm install
+npm run build   # compile TypeScript
+npm run dev     # run with tsx (auto-reload)
 ```
 
 ## License
