@@ -1,6 +1,7 @@
 {
   "name": "ai-huebot",
   "version": "1.0.0",
+  "mcpName": "io.github.ethansk/ai-huebot",
   "description": "AI HueBot - MCP server for controlling Philips Hue lights with vibes. Set moods, control individual lights, activate scenes, and more through any MCP-compatible AI client like Claude.",
   "type": "module",
   "main": "./dist/index.js",
