@@ -1,0 +1,28 @@
+{
+  "name": "hue-vibes-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for controlling Philips Hue lights with vibes",
+  "type": "module",
+  "bin": {
+    "hue-vibes-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "keywords": ["mcp", "philips-hue", "smart-home", "lights"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "dotenv": "^17.3.1",
+    "open": "^11.0.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}
