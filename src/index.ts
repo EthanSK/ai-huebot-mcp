@@ -21,6 +21,14 @@ import {
   deleteSavedVibe,
 } from "./saved-vibes.js";
 import type { LightStateUpdate } from "./types.js";
+import {
+  rateVibe,
+  incrementTimesShown,
+  getVibeFeedback,
+  getFavorites,
+  getUserHint,
+  acknowledgeHint,
+} from "./feedback.js";
 
 const server = new McpServer({
   name: "ai-huebot",
@@ -314,6 +322,13 @@ server.tool(
         saveMessage = `\n(Failed to auto-save vibe: ${saveErr instanceof Error ? saveErr.message : String(saveErr)})`;
       }
 
+      // Track usage
+      try {
+        await incrementTimesShown(vibe);
+      } catch {
+        // Non-critical, don't fail the vibe set
+      }
+
       return {
         content: [
           {
@@ -474,6 +489,13 @@ server.tool(
         })
       );
 
+      // Track usage
+      try {
+        await incrementTimesShown(vibe.name);
+      } catch {
+        // Non-critical
+      }
+
       return {
         content: [
           {
@@ -536,6 +558,244 @@ server.tool(
           {
             type: "text" as const,
             text: `Error deleting vibe: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// --- rate_vibe ---
+server.tool(
+  "rate_vibe",
+  "Rate a vibe and/or leave feedback. At least one of rating or feedback must be provided. Use the vibe name from saved vibes.",
+  {
+    vibe_name: z.string().describe("The name of the vibe to rate (must match a saved vibe name)"),
+    rating: z
+      .number()
+      .min(1)
+      .max(10)
+      .optional()
+      .describe("Rating from 1 to 10"),
+    feedback: z
+      .string()
+      .optional()
+      .describe("Optional text feedback about the vibe"),
+  },
+  async ({ vibe_name, rating, feedback }) => {
+    try {
+      const entry = await rateVibe(vibe_name, rating, feedback);
+      const parts: string[] = [];
+      if (entry.rating !== undefined) parts.push(`Rating: ${entry.rating}/10`);
+      if (entry.feedback) parts.push(`Feedback: "${entry.feedback}"`);
+      parts.push(`Times applied: ${entry.times_shown}`);
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Feedback saved for "${vibe_name}".\n${parts.join("\n")}`,
+          },
+        ],
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error rating vibe: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// --- get_vibe_feedback ---
+server.tool(
+  "get_vibe_feedback",
+  "Retrieve all vibe feedback entries. Optionally filter by minimum rating or sort by rating. Useful for understanding user preferences.",
+  {
+    min_rating: z
+      .number()
+      .min(1)
+      .max(10)
+      .optional()
+      .describe("Only return vibes with at least this rating"),
+    sort_by_rating: z
+      .boolean()
+      .optional()
+      .describe("Sort results by rating descending (default: false)"),
+  },
+  async ({ min_rating, sort_by_rating }) => {
+    try {
+      const entries = await getVibeFeedback({ min_rating, sort_by_rating });
+
+      if (entries.length === 0) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "No feedback found yet. Use rate_vibe to rate vibes after setting them.",
+            },
+          ],
+        };
+      }
+
+      const formatted = entries
+        .map((e) => {
+          const parts = [`${e.vibe_name} (${e.vibe_slug})`];
+          if (e.rating !== undefined) parts.push(`  Rating: ${e.rating}/10`);
+          if (e.feedback) parts.push(`  Feedback: "${e.feedback}"`);
+          parts.push(`  Times applied: ${e.times_shown}`);
+          parts.push(`  Last updated: ${e.timestamp}`);
+          return parts.join("\n");
+        })
+        .join("\n\n");
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Found ${entries.length} feedback entry/entries:\n\n${formatted}`,
+          },
+        ],
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error getting feedback: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// --- get_favorites ---
+server.tool(
+  "get_favorites",
+  "Get top-rated vibes (rating >= 7 by default). Use this to suggest vibes the user has enjoyed before.",
+  {
+    min_rating: z
+      .number()
+      .min(1)
+      .max(10)
+      .optional()
+      .describe("Minimum rating threshold (default: 7)"),
+  },
+  async ({ min_rating }) => {
+    try {
+      const favorites = await getFavorites(min_rating);
+
+      if (favorites.length === 0) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `No favorite vibes found (with rating >= ${min_rating ?? 7}). Rate some vibes first!`,
+            },
+          ],
+        };
+      }
+
+      const formatted = favorites
+        .map((e) => {
+          const parts = [`${e.vibe_name} (${e.vibe_slug})`];
+          parts.push(`  Rating: ${e.rating}/10`);
+          if (e.feedback) parts.push(`  Feedback: "${e.feedback}"`);
+          parts.push(`  Times applied: ${e.times_shown}`);
+          return parts.join("\n");
+        })
+        .join("\n\n");
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Found ${favorites.length} favorite vibe(s):\n\n${formatted}`,
+          },
+        ],
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error getting favorites: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// --- get_user_hint ---
+server.tool(
+  "get_user_hint",
+  "Get a hint message about the feedback system for the user. Returns a hint only if the user hasn't been told about the feedback system yet. Relay the hint text to the user if one is returned.",
+  async () => {
+    try {
+      const hint = await getUserHint();
+      if (hint) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: hint,
+            },
+          ],
+        };
+      }
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: "Hint already acknowledged. No need to show again.",
+          },
+        ],
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error getting hint: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// --- acknowledge_hint ---
+server.tool(
+  "acknowledge_hint",
+  "Mark the feedback system hint as shown so it won't be displayed again.",
+  async () => {
+    try {
+      await acknowledgeHint();
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: "Hint acknowledged. It won't be shown again.",
+          },
+        ],
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error acknowledging hint: ${err instanceof Error ? err.message : String(err)}`,
           },
         ],
         isError: true,
