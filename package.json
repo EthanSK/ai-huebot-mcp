@@ -41,11 +41,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/EthanSK/hue-vibes-mcp.git"
+    "url": "https://github.com/EthanSK/ai-huebot-mcp.git"
   },
-  "homepage": "https://github.com/EthanSK/hue-vibes-mcp#readme",
+  "homepage": "https://github.com/EthanSK/ai-huebot-mcp#readme",
   "bugs": {
-    "url": "https://github.com/EthanSK/hue-vibes-mcp/issues"
+    "url": "https://github.com/EthanSK/ai-huebot-mcp/issues"
   },
   "engines": {
     "node": ">=18.0.0"

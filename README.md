@@ -1,7 +1,7 @@
 # AI HueBot
 
 [![npm version](https://img.shields.io/npm/v/ai-huebot.svg)](https://www.npmjs.com/package/ai-huebot)
-[![license](https://img.shields.io/npm/l/ai-huebot.svg)](https://github.com/EthanSK/hue-vibes-mcp/blob/main/LICENSE)
+[![license](https://img.shields.io/npm/l/ai-huebot.svg)](https://github.com/EthanSK/ai-huebot-mcp/blob/main/LICENSE)
 [![node](https://img.shields.io/node/v/ai-huebot.svg)](https://www.npmjs.com/package/ai-huebot)
 
 An MCP server for controlling Philips Hue lights via the Hue Remote API (CLIP v2). Set vibes, control individual lights, activate scenes, and more -- all through any MCP-compatible AI client like Claude.
@@ -31,8 +31,8 @@ npx ai-huebot
 ### Install from source
 
 ```bash
-git clone https://github.com/EthanSK/hue-vibes-mcp.git
-cd hue-vibes-mcp
+git clone https://github.com/EthanSK/ai-huebot-mcp.git
+cd ai-huebot-mcp
 npm install
 npm run build
 ```
