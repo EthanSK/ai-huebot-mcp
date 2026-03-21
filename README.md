@@ -1,4 +1,4 @@
-# hue-vibes-mcp
+# AI HueBot
 
 An MCP server for controlling Philips Hue lights via the Hue Remote API (CLIP v2). Set vibes, control individual lights, activate scenes, and more -- all from Claude.
 
@@ -24,7 +24,7 @@ Copy `.env.example` to `.env` and fill in your Hue developer credentials if you 
 
 ## Authorization
 
-On first use, call the `hue_auth` tool. It will open your browser to authorize with Philips Hue and save tokens to `~/.hue-vibes/tokens.json`. Tokens refresh automatically.
+On first use, call the `hue_auth` tool. It will open your browser to authorize with Philips Hue and save tokens to `~/.ai-huebot/tokens.json`. Tokens refresh automatically.
 
 ## Available Tools
 
@@ -44,7 +44,7 @@ Add this to your Claude Desktop config (`~/Library/Application Support/Claude/cl
 ```json
 {
   "mcpServers": {
-    "hue-vibes": {
+    "ai-huebot": {
       "command": "node",
       "args": ["/absolute/path/to/hue-vibes-mcp/dist/index.js"]
     }
@@ -57,8 +57,8 @@ Or if installed globally:
 ```json
 {
   "mcpServers": {
-    "hue-vibes": {
-      "command": "hue-vibes-mcp"
+    "ai-huebot": {
+      "command": "ai-huebot"
     }
   }
 }

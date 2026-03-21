@@ -6,7 +6,7 @@ import { join } from "node:path";
 import open from "open";
 import type { HueConfig, HueTokens } from "./types.js";
 
-const TOKENS_DIR = join(homedir(), ".hue-vibes");
+const TOKENS_DIR = join(homedir(), ".ai-huebot");
 const TOKENS_PATH = join(TOKENS_DIR, "tokens.json");
 
 const HUE_AUTH_URL = "https://api.meethue.com/v2/oauth2/authorize";

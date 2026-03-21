@@ -1,10 +1,10 @@
 {
-  "name": "hue-vibes-mcp",
+  "name": "ai-huebot",
   "version": "1.0.0",
-  "description": "MCP server for controlling Philips Hue lights with vibes",
+  "description": "AI HueBot - MCP server for controlling Philips Hue lights with vibes",
   "type": "module",
   "bin": {
-    "hue-vibes-mcp": "./dist/index.js"
+    "ai-huebot": "./dist/index.js"
   },
   "scripts": {
     "build": "tsc",

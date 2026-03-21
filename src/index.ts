@@ -17,7 +17,7 @@ import {
 import type { LightStateUpdate } from "./types.js";
 
 const server = new McpServer({
-  name: "hue-vibes-mcp",
+  name: "ai-huebot",
   version: "1.0.0",
 });
 
@@ -326,7 +326,7 @@ server.tool(
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("hue-vibes-mcp server running on stdio");
+  console.error("AI HueBot server running on stdio");
 }
 
 main().catch((err) => {
