@@ -243,12 +243,12 @@ export async function getValidAccessToken(): Promise<{
   }
 
   if (isTokenExpired(tokens)) {
+    const previousUsername = tokens.username;
     try {
       tokens = await refreshAccessToken(tokens.refresh_token, config);
-      // Preserve existing username through refresh
-      const existing = await loadTokens();
-      if (existing?.username && !tokens.username) {
-        tokens.username = existing.username;
+      // Preserve existing username through refresh (refreshAccessToken doesn't return it)
+      if (previousUsername && !tokens.username) {
+        tokens.username = previousUsername;
       }
       await saveTokens(tokens);
     } catch {

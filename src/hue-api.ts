@@ -64,6 +64,22 @@ function mapV2BodyToV1(path: string, body: string | undefined): string | undefin
     }
   }
 
+  // Light state: v2 {"on":{"on":true},"dimming":{"brightness":50},"color":{"xy":{"x":0.3,"y":0.15}}}
+  //           → v1 {"on":true,"bri":127,"xy":[0.3,0.15]}
+  const lightMatch = path.match(/^\/light\/.+$/);
+  if (lightMatch) {
+    try {
+      const parsed = JSON.parse(body) as LightStateUpdate;
+      const v1Body: Record<string, unknown> = {};
+      if (parsed.on !== undefined) v1Body.on = parsed.on.on;
+      if (parsed.dimming !== undefined) v1Body.bri = Math.round((parsed.dimming.brightness / 100) * 254);
+      if (parsed.color?.xy) v1Body.xy = [parsed.color.xy.x, parsed.color.xy.y];
+      return JSON.stringify(v1Body);
+    } catch {
+      // Fall through with original body
+    }
+  }
+
   return body;
 }
 
@@ -192,6 +208,17 @@ async function hueRequest<T>(
 
           // v1 PUT responses return an array of success/error objects
           if (Array.isArray(v1Data)) {
+            // Check if v1 returned errors (e.g. invalid light ID or body format)
+            const v1Errors = v1Data.filter(
+              (item: Record<string, unknown>) => item.error
+            );
+            if (v1Errors.length > 0) {
+              const descriptions = v1Errors.map(
+                (item: Record<string, unknown>) =>
+                  (item.error as Record<string, unknown>)?.description ?? "unknown error"
+              );
+              throw new Error(`Hue v1 API errors: ${descriptions.join(", ")}`);
+            }
             return { errors: [], data: v1Data } as unknown as HueApiResponse<T>;
           }
 
