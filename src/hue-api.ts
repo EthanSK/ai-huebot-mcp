@@ -7,34 +7,148 @@ import type {
 } from "./types.js";
 
 const RESOURCE_URL = "https://api.meethue.com/route/clip/v2/resource";
+const V1_BASE_URL = "https://api.meethue.com/route/api/0";
 
-async function getAccessToken(): Promise<string> {
-  const token = await getValidAccessToken();
-  if (!token) {
+async function getCredentials(): Promise<{
+  accessToken: string;
+  username: string | undefined;
+}> {
+  const result = await getValidAccessToken();
+  if (!result) {
     throw new Error(
       "Not authorized. Please run the hue_auth tool first to connect your Hue account."
     );
   }
-  return token;
+  return result;
+}
+
+/**
+ * Map a CLIP v2 resource path to the equivalent v1 API path.
+ * Returns undefined if there's no known mapping.
+ */
+function mapV2PathToV1(path: string): string | undefined {
+  // /light → /lights
+  if (path === "/light") return "/lights";
+  // /scene → /scenes
+  if (path === "/scene") return "/scenes";
+
+  // /light/{id} → /lights/{id}/state
+  const lightMatch = path.match(/^\/light\/(.+)$/);
+  if (lightMatch) return `/lights/${lightMatch[1]}/state`;
+
+  // /scene/{id} → /scenes/{id}
+  const sceneMatch = path.match(/^\/scene\/(.+)$/);
+  if (sceneMatch) return `/scenes/${sceneMatch[1]}`;
+
+  return undefined;
+}
+
+/**
+ * Convert a v2 PUT body to a v1-compatible body where needed.
+ * For scenes, v2 uses {"recall":{"action":"active"}} but v1 just needs the body as-is for PUT.
+ * For lights, v2 body goes to /lights/{id}/state in v1.
+ */
+function mapV2BodyToV1(path: string, body: string | undefined): string | undefined {
+  if (!body) return body;
+
+  // Scene recall: v2 {"recall":{"action":"active"}} → v1 scene PUT just needs to be triggered
+  const sceneMatch = path.match(/^\/scene\/.+$/);
+  if (sceneMatch) {
+    try {
+      const parsed = JSON.parse(body);
+      if (parsed.recall?.action === "active") {
+        return JSON.stringify({ on: true });
+      }
+    } catch {
+      // Fall through with original body
+    }
+  }
+
+  return body;
 }
 
 async function hueRequest<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<HueApiResponse<T>> {
-  const token = await getAccessToken();
+  const { accessToken, username } = await getCredentials();
   const url = `${RESOURCE_URL}${path}`;
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${accessToken}`,
+    "Content-Type": "application/json",
+  };
+
+  if (username) {
+    headers["hue-application-key"] = username;
+  }
 
   const response = await fetch(url, {
     ...options,
     headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...options.headers,
+      ...headers,
+      ...(options.headers as Record<string, string>),
     },
   });
 
   if (!response.ok) {
+    // Fallback to v1 API when v2 returns 403.
+    // This happens when the username/hue-application-key isn't set up yet
+    // (e.g. first auth before the bridge whitelist step completes).
+    // The v1 API only needs a Bearer token, no application key.
+    if (response.status === 403) {
+      const v1Path = mapV2PathToV1(path);
+      if (v1Path) {
+        console.warn(
+          `[AI HueBot] CLIP v2 returned 403 for ${path}, falling back to v1 API: ${v1Path}`
+        );
+        try {
+          const v1Url = `${V1_BASE_URL}${v1Path}`;
+          const v1Body = mapV2BodyToV1(path, options.body as string | undefined);
+
+          const v1Response = await fetch(v1Url, {
+            ...options,
+            body: v1Body,
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+            },
+          });
+
+          if (!v1Response.ok) {
+            const v1Text = await v1Response.text();
+            throw new Error(`Hue v1 API error (${v1Response.status}): ${v1Text}`);
+          }
+
+          // v1 response format differs from v2 — best-effort conversion.
+          // v1 returns either an array or an object; wrap it to match HueApiResponse shape.
+          const v1Data = await v1Response.json();
+
+          // v1 list endpoints return { "1": {...}, "2": {...} } — convert to array
+          if (v1Data && typeof v1Data === "object" && !Array.isArray(v1Data)) {
+            const items = Object.entries(v1Data).map(([key, value]) => ({
+              id: key,
+              ...(value as Record<string, unknown>),
+            }));
+            return { errors: [], data: items } as unknown as HueApiResponse<T>;
+          }
+
+          // v1 PUT responses return an array of success/error objects
+          if (Array.isArray(v1Data)) {
+            return { errors: [], data: v1Data } as unknown as HueApiResponse<T>;
+          }
+
+          return { errors: [], data: [v1Data] } as unknown as HueApiResponse<T>;
+        } catch (v1Error) {
+          console.warn(
+            `[AI HueBot] v1 fallback also failed:`,
+            v1Error instanceof Error ? v1Error.message : String(v1Error)
+          );
+          // Fall through to throw the original v2 error
+        }
+      }
+    }
+
     const text = await response.text();
     throw new Error(`Hue API error (${response.status}): ${text}`);
   }

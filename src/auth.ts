@@ -73,10 +73,45 @@ async function exchangeCodeForTokens(code: string, config: HueConfig): Promise<H
     expires_in: number;
   };
 
-  return {
+  const tokens: HueTokens = {
     ...data,
     obtained_at: Date.now(),
   };
+
+  // Create a whitelisted username for CLIP v2 API access
+  try {
+    // Press the link button remotely
+    await fetch("https://api.meethue.com/route/api/0/config", {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${tokens.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ linkbutton: true }),
+    });
+
+    // Create a new whitelisted username
+    const usernameRes = await fetch("https://api.meethue.com/route/api/", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${tokens.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ devicetype: "ai_huebot#claude" }),
+    });
+
+    const usernameData = (await usernameRes.json()) as Array<{
+      success?: { username: string };
+    }>;
+
+    if (usernameData[0]?.success?.username) {
+      tokens.username = usernameData[0].success.username;
+    }
+  } catch {
+    // Non-fatal: username creation failed, CLIP v2 calls will fail but v1 would still work
+  }
+
+  return tokens;
 }
 
 async function refreshAccessToken(refreshToken: string, config: HueConfig): Promise<HueTokens> {
@@ -115,10 +150,13 @@ async function refreshAccessToken(refreshToken: string, config: HueConfig): Prom
 }
 
 /**
- * Get a valid access token, refreshing if necessary.
+ * Get a valid access token and username, refreshing if necessary.
  * Returns null if no tokens are saved (user needs to authorize).
  */
-export async function getValidAccessToken(): Promise<string | null> {
+export async function getValidAccessToken(): Promise<{
+  accessToken: string;
+  username: string | undefined;
+} | null> {
   const config = getConfig();
   let tokens = await loadTokens();
 
@@ -129,6 +167,11 @@ export async function getValidAccessToken(): Promise<string | null> {
   if (isTokenExpired(tokens)) {
     try {
       tokens = await refreshAccessToken(tokens.refresh_token, config);
+      // Preserve existing username through refresh
+      const existing = await loadTokens();
+      if (existing?.username && !tokens.username) {
+        tokens.username = existing.username;
+      }
       await saveTokens(tokens);
     } catch {
       // Refresh failed, user needs to re-authorize
@@ -136,7 +179,7 @@ export async function getValidAccessToken(): Promise<string | null> {
     }
   }
 
-  return tokens.access_token;
+  return { accessToken: tokens.access_token, username: tokens.username };
 }
 
 /**

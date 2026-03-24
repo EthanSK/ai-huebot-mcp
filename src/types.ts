@@ -5,6 +5,8 @@ export interface HueTokens {
   expires_in: number;
   /** Timestamp (ms) when the access token was obtained */
   obtained_at: number;
+  /** Whitelisted username for hue-application-key header (CLIP v2) */
+  username?: string;
 }
 
 export interface HueConfig {

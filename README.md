@@ -106,6 +106,16 @@ npm run build   # compile TypeScript
 npm run dev     # run with tsx (auto-reload)
 ```
 
+## Troubleshooting
+
+- **403 on CLIP v2 API** -- CLIP v2 requires a `hue-application-key` header containing a whitelisted bridge username. The `hue_auth` flow creates this automatically, but if the stored username is lost or invalid, v2 calls will return 403. The server automatically falls back to the v1 API in this case. To fix permanently, re-run `hue_auth` to re-establish the bridge link.
+
+- **Auth token expiry** -- Access tokens last 7 days and auto-refresh using the stored refresh token. If refresh fails (e.g. revoked access), re-run `hue_auth` to re-authorize.
+
+- **Bridge not responding** -- Make sure your Hue bridge is powered on and on the same network as your machine. The bridge's local IP can change if your router reassigns it -- check the Hue app for the current IP.
+
+- **MCP server not loading in Claude Code** -- MCP servers initialize at session start. If AI HueBot doesn't appear, run `/reload-plugins` or restart the Claude Code session. Run `/doctor` to check for configuration errors.
+
 ## License
 
 [MIT](LICENSE)
