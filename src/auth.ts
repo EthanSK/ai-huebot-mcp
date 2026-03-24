@@ -200,6 +200,34 @@ export async function ensureUsername(accessToken: string): Promise<string | unde
 }
 
 /**
+ * Force-refresh the access token even if it hasn't expired.
+ * Used when CLIP v2 returns 403 with a valid username — the token
+ * may have entered a bad state (e.g., from rate limiting).
+ */
+export async function forceRefreshToken(): Promise<{
+  accessToken: string;
+  username: string | undefined;
+} | null> {
+  const config = getConfig();
+  const tokens = await loadTokens();
+  if (!tokens) return null;
+
+  try {
+    console.warn("[AI HueBot] Force-refreshing access token...");
+    const refreshed = await refreshAccessToken(tokens.refresh_token, config);
+    // Preserve username
+    if (tokens.username) {
+      refreshed.username = tokens.username;
+    }
+    await saveTokens(refreshed);
+    return { accessToken: refreshed.access_token, username: refreshed.username };
+  } catch {
+    console.warn("[AI HueBot] Force token refresh failed");
+    return null;
+  }
+}
+
+/**
  * Get a valid access token and username, refreshing if necessary.
  * Returns null if no tokens are saved (user needs to authorize).
  */

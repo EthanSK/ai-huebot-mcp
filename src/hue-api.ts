@@ -1,4 +1,4 @@
-import { getValidAccessToken, ensureUsername } from "./auth.js";
+import { getValidAccessToken, ensureUsername, forceRefreshToken } from "./auth.js";
 import type {
   HueApiResponse,
   HueLight,
@@ -123,9 +123,33 @@ async function hueRequest<T>(
           );
         }
       } else {
+        // Token may be stale — try refreshing and retrying once
         console.warn(
-          `[AI HueBot] CLIP v2 returned 403 for ${path} (hue-application-key present but rejected)`
+          `[AI HueBot] CLIP v2 returned 403 for ${path} (hue-application-key present but rejected), refreshing token...`
         );
+        const refreshed = await forceRefreshToken();
+        if (refreshed) {
+          const retryHeaders: Record<string, string> = {
+            Authorization: `Bearer ${refreshed.accessToken}`,
+            "Content-Type": "application/json",
+          };
+          if (refreshed.username) {
+            retryHeaders["hue-application-key"] = refreshed.username;
+          }
+          const retryResponse = await fetch(url, {
+            ...options,
+            headers: {
+              ...retryHeaders,
+              ...(options.headers as Record<string, string>),
+            },
+          });
+          if (retryResponse.ok) {
+            return (await retryResponse.json()) as HueApiResponse<T>;
+          }
+          console.warn(
+            `[AI HueBot] CLIP v2 retry after token refresh also returned ${retryResponse.status}`
+          );
+        }
       }
 
       // Fallback to v1 API.
