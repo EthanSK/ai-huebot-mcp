@@ -1,4 +1,4 @@
-import { getValidAccessToken } from "./auth.js";
+import { getValidAccessToken, ensureUsername } from "./auth.js";
 import type {
   HueApiResponse,
   HueLight,
@@ -92,15 +92,48 @@ async function hueRequest<T>(
   });
 
   if (!response.ok) {
-    // Fallback to v1 API when v2 returns 403.
-    // This happens when the username/hue-application-key isn't set up yet
-    // (e.g. first auth before the bridge whitelist step completes).
-    // The v1 API only needs a Bearer token, no application key.
+    // Handle 403: the hue-application-key (username) is missing or invalid.
+    // Try to create one and retry the v2 request before falling back to v1.
     if (response.status === 403) {
+      // Attempt to create a username if we don't have one
+      if (!username) {
+        console.warn(
+          `[AI HueBot] CLIP v2 returned 403 for ${path} (no hue-application-key), attempting to create one...`
+        );
+        const newUsername = await ensureUsername(accessToken);
+        if (newUsername) {
+          // Retry the v2 request with the new username
+          const retryHeaders: Record<string, string> = {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+            "hue-application-key": newUsername,
+          };
+          const retryResponse = await fetch(url, {
+            ...options,
+            headers: {
+              ...retryHeaders,
+              ...(options.headers as Record<string, string>),
+            },
+          });
+          if (retryResponse.ok) {
+            return (await retryResponse.json()) as HueApiResponse<T>;
+          }
+          console.warn(
+            `[AI HueBot] CLIP v2 retry with new username also returned ${retryResponse.status}`
+          );
+        }
+      } else {
+        console.warn(
+          `[AI HueBot] CLIP v2 returned 403 for ${path} (hue-application-key present but rejected)`
+        );
+      }
+
+      // Fallback to v1 API.
+      // The v1 API only needs a Bearer token, no application key.
       const v1Path = mapV2PathToV1(path);
       if (v1Path) {
         console.warn(
-          `[AI HueBot] CLIP v2 returned 403 for ${path}, falling back to v1 API: ${v1Path}`
+          `[AI HueBot] Falling back to v1 API: ${v1Path}`
         );
         try {
           const v1Url = `${V1_BASE_URL}${v1Path}`;

@@ -79,36 +79,9 @@ async function exchangeCodeForTokens(code: string, config: HueConfig): Promise<H
   };
 
   // Create a whitelisted username for CLIP v2 API access
-  try {
-    // Press the link button remotely
-    await fetch("https://api.meethue.com/route/api/0/config", {
-      method: "PUT",
-      headers: {
-        Authorization: `Bearer ${tokens.access_token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ linkbutton: true }),
-    });
-
-    // Create a new whitelisted username
-    const usernameRes = await fetch("https://api.meethue.com/route/api/", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${tokens.access_token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ devicetype: "ai_huebot#claude" }),
-    });
-
-    const usernameData = (await usernameRes.json()) as Array<{
-      success?: { username: string };
-    }>;
-
-    if (usernameData[0]?.success?.username) {
-      tokens.username = usernameData[0].success.username;
-    }
-  } catch {
-    // Non-fatal: username creation failed, CLIP v2 calls will fail but v1 would still work
+  const username = await createWhitelistedUsername(tokens.access_token);
+  if (username) {
+    tokens.username = username;
   }
 
   return tokens;
@@ -147,6 +120,83 @@ async function refreshAccessToken(refreshToken: string, config: HueConfig): Prom
     ...data,
     obtained_at: Date.now(),
   };
+}
+
+/**
+ * Create a whitelisted username (hue-application-key) for CLIP v2 API access.
+ * This presses the virtual link button and then creates a new username.
+ * Returns the username on success, or undefined on failure.
+ */
+export async function createWhitelistedUsername(accessToken: string): Promise<string | undefined> {
+  try {
+    // Press the link button remotely
+    const linkRes = await fetch("https://api.meethue.com/route/api/0/config", {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ linkbutton: true }),
+    });
+
+    if (!linkRes.ok) {
+      console.warn(
+        `[AI HueBot] Failed to press link button (${linkRes.status}): ${await linkRes.text()}`
+      );
+    }
+
+    // Create a new whitelisted username
+    const usernameRes = await fetch("https://api.meethue.com/route/api/", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ devicetype: "ai_huebot#claude" }),
+    });
+
+    const usernameData = (await usernameRes.json()) as Array<{
+      success?: { username: string };
+      error?: { description: string };
+    }>;
+
+    if (usernameData[0]?.success?.username) {
+      console.log("[AI HueBot] Successfully created whitelisted username for CLIP v2 access");
+      return usernameData[0].success.username;
+    }
+
+    if (usernameData[0]?.error) {
+      console.warn(
+        `[AI HueBot] Failed to create username: ${usernameData[0].error.description}`
+      );
+    }
+  } catch (err) {
+    console.warn(
+      "[AI HueBot] Username creation failed:",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+  return undefined;
+}
+
+/**
+ * Ensure the stored tokens have a valid whitelisted username.
+ * If the username is missing, attempt to create one.
+ * Returns the (possibly updated) username.
+ */
+export async function ensureUsername(accessToken: string): Promise<string | undefined> {
+  const tokens = await loadTokens();
+  if (tokens?.username) {
+    return tokens.username;
+  }
+
+  console.warn("[AI HueBot] No hue-application-key (username) found, attempting to create one...");
+  const username = await createWhitelistedUsername(accessToken);
+  if (username && tokens) {
+    tokens.username = username;
+    await saveTokens(tokens);
+  }
+  return username;
 }
 
 /**
