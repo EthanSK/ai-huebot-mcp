@@ -170,17 +170,61 @@ export async function listLights(): Promise<HueLight[]> {
 
 export async function setLightState(
   lightId: string,
-  state: LightStateUpdate
+  state: LightStateUpdate,
+  idV1?: string
 ): Promise<void> {
-  const response = await hueRequest<unknown>(`/light/${lightId}`, {
-    method: "PUT",
-    body: JSON.stringify(state),
-  });
+  try {
+    const response = await hueRequest<unknown>(`/light/${lightId}`, {
+      method: "PUT",
+      body: JSON.stringify(state),
+    });
 
-  if (response.errors.length > 0) {
-    throw new Error(
-      `Failed to update light: ${response.errors.map((e) => e.description).join(", ")}`
-    );
+    if (response.errors.length > 0) {
+      throw new Error(
+        `Failed to update light: ${response.errors.map((e) => e.description).join(", ")}`
+      );
+    }
+  } catch (err) {
+    // If v2 PUT failed (403 fallback also failed), try direct v1 with numeric ID
+    if (!idV1) {
+      // Look up id_v1 from list_lights
+      try {
+        const lights = await listLights();
+        const light = lights.find((l) => l.id === lightId);
+        if (light?.id_v1) idV1 = light.id_v1;
+      } catch { /* ignore lookup failure */ }
+    }
+    if (idV1) {
+      const numericId = idV1.replace(/^\/lights\//, "");
+      const { accessToken } = await getCredentials();
+      const v1State: Record<string, unknown> = {};
+      if (state.on !== undefined) v1State.on = state.on.on;
+      if (state.dimming !== undefined) v1State.bri = Math.round((state.dimming.brightness / 100) * 254);
+      if (state.color?.xy) {
+        v1State.xy = [state.color.xy.x, state.color.xy.y];
+      }
+      const v1Res = await fetch(
+        `${V1_BASE_URL}/lights/${numericId}/state`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(v1State),
+        }
+      );
+      if (!v1Res.ok) {
+        throw new Error(`v1 fallback failed (${v1Res.status}): ${await v1Res.text()}`);
+      }
+      const v1Data = await v1Res.json() as Array<{ error?: { description: string } }>;
+      const v1Errors = v1Data.filter((r) => r.error);
+      if (v1Errors.length > 0) {
+        throw new Error(`v1 errors: ${v1Errors.map((e) => e.error!.description).join(", ")}`);
+      }
+      return;
+    }
+    throw err;
   }
 }
 
@@ -193,7 +237,7 @@ export async function setAllLightsState(
   await Promise.allSettled(
     lights.map(async (light) => {
       try {
-        await setLightState(light.id, state);
+        await setLightState(light.id, state, light.id_v1);
         results.succeeded++;
       } catch (err) {
         results.failed++;
