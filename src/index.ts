@@ -29,6 +29,14 @@ import {
   getUserHint,
   acknowledgeHint,
 } from "./feedback.js";
+import {
+  getUserProfile,
+  updateUserProfile,
+  updateLightInventory,
+  logVibeToHistory,
+  updatePreferencesFromRating,
+  noteVibeAsFavourite,
+} from "./user-profile.js";
 
 const server = new McpServer({
   name: "ai-huebot",
@@ -80,6 +88,14 @@ server.tool(
     try {
       const lights = await listLights();
       const formatted = lights.map(formatLightInfo).join("\n");
+
+      // Auto-update user profile with light inventory
+      try {
+        await updateLightInventory(lights);
+      } catch {
+        // Non-critical, don't fail list_lights
+      }
+
       return {
         content: [
           {
@@ -329,6 +345,13 @@ server.tool(
         // Non-critical, don't fail the vibe set
       }
 
+      // Auto-update user profile with vibe history
+      try {
+        await logVibeToHistory(vibe, lights);
+      } catch {
+        // Non-critical
+      }
+
       return {
         content: [
           {
@@ -370,6 +393,14 @@ server.tool(
   async ({ name, description, lights }) => {
     try {
       const saved = await saveVibe(name, description ?? name, lights);
+
+      // Auto-update user profile with favourite note
+      try {
+        await noteVibeAsFavourite(name, description ?? name);
+      } catch {
+        // Non-critical
+      }
+
       return {
         content: [
           {
@@ -591,6 +622,15 @@ server.tool(
       if (entry.feedback) parts.push(`Feedback: "${entry.feedback}"`);
       parts.push(`Times applied: ${entry.times_shown}`);
 
+      // Auto-update user profile with rating preferences
+      if (rating !== undefined) {
+        try {
+          await updatePreferencesFromRating(vibe_name, rating, feedback);
+        } catch {
+          // Non-critical
+        }
+      }
+
       return {
         content: [
           {
@@ -796,6 +836,76 @@ server.tool(
           {
             type: "text" as const,
             text: `Error acknowledging hint: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// --- get_user_profile ---
+server.tool(
+  "get_user_profile",
+  "Get the full user profile with light preferences, vibe history, colour preferences, and patterns. Read this before making vibe decisions to personalise recommendations. The profile is stored as markdown at ~/.ai-huebot/user-profile.md and is auto-populated over time.",
+  async () => {
+    try {
+      const profile = await getUserProfile();
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: profile,
+          },
+        ],
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error getting user profile: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// --- update_user_profile ---
+server.tool(
+  "update_user_profile",
+  "Update a section of the user profile with new observations, preferences, or notes. Use this to record things the user tells you about their preferences, or to add evolution notes with suggestions.",
+  {
+    section: z
+      .string()
+      .describe(
+        "The section to update. One of: 'light inventory', 'room mappings', 'colour preferences', 'color preferences', 'time-of-day patterns', 'time of day patterns', 'vibe history', 'explicit preferences', 'evolution notes'"
+      ),
+    content: z
+      .string()
+      .describe(
+        "The new content for the section (markdown format). Replaces the entire section content."
+      ),
+  },
+  async ({ section, content }) => {
+    try {
+      const result = await updateUserProfile(section, content);
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: result,
+          },
+        ],
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error updating user profile: ${err instanceof Error ? err.message : String(err)}`,
           },
         ],
         isError: true,
