@@ -21,7 +21,7 @@
 **Auth setup:**
 - Navigated to Hue developer portal to register the app under "My Apps"
 - Hue Remote API is cloud-based — OAuth redirect to localhost only needs to happen on the machine running the server (Mac mini). The Hue bridge does not need to be on the same network.
-- Used Playwright to complete the Hue OAuth flow: navigated to login page, clicked "Continue with Google", selected Ethan's bridge ("Wheler st"), granted permission.
+- Used Playwright to complete the Hue OAuth flow: navigated to login page, clicked "Continue with Google", selected Ethan's bridge ("[redacted bridge name]"), granted permission.
 - Auth callback server runs on port 8989. Tokens saved to `~/.ai-huebot/tokens.json` and auto-refresh.
 
 **Initial commit:** `7205c14` — Philips Hue MCP server with basic tools (hue_auth, list_lights, set_light, set_all_lights, set_scene, set_vibe).
@@ -115,7 +115,7 @@
 - Deep investigation confirmed CLIP v2 PUT requests had NEVER worked in this project's history
 - Every successful light control had been done via the v1 API (`/route/api/{username}/lights/{id}/state`)
 - Root cause: CLIP v2 requires a `hue-application-key` header containing a whitelisted bridge username. The code only sent `Authorization: Bearer` and `Content-Type`.
-- The username `PAhGo7n4yPB7iJh1tAFEwCarTJlCUyXovlkPWlD4` (name: "hue_vibes_mcp") was created on March 21 via v1 API linkbutton + POST flow, but was never saved to tokens.json.
+- The username `[REDACTED]` (name: "hue_vibes_mcp") was created on March 21 via v1 API linkbutton + POST flow, but was never saved to tokens.json.
 
 **Fix applied:**
 1. Added `username?: string` field to `HueTokens` interface in `src/types.ts`
