@@ -74,6 +74,8 @@ function mapV2BodyToV1(path: string, body: string | undefined): string | undefin
       if (parsed.on !== undefined) v1Body.on = parsed.on.on;
       if (parsed.dimming !== undefined) v1Body.bri = Math.round((parsed.dimming.brightness / 100) * 254);
       if (parsed.color?.xy) v1Body.xy = [parsed.color.xy.x, parsed.color.xy.y];
+      if (parsed.dynamics?.duration !== undefined) v1Body.transitiontime = Math.round(parsed.dynamics.duration / 100);
+      if (parsed.effects?.effect) v1Body.effect = parsed.effects.effect === "no_effect" ? "none" : parsed.effects.effect;
       return JSON.stringify(v1Body);
     } catch {
       // Fall through with original body
@@ -395,6 +397,200 @@ export function hexToXy(hex: string): { x: number; y: number } {
   return {
     x: Math.round((X / sum) * 10000) / 10000,
     y: Math.round((Y / sum) * 10000) / 10000,
+  };
+}
+
+// --- Animation state management ---
+
+/** Tracks the currently running animation so it can be stopped. */
+let activeAnimationAbort: AbortController | null = null;
+
+export function isAnimationRunning(): boolean {
+  return activeAnimationAbort !== null && !activeAnimationAbort.signal.aborted;
+}
+
+export function stopAnimation(): boolean {
+  if (activeAnimationAbort && !activeAnimationAbort.signal.aborted) {
+    activeAnimationAbort.abort();
+    activeAnimationAbort = null;
+    return true;
+  }
+  activeAnimationAbort = null;
+  return false;
+}
+
+export interface AnimationPhase {
+  lights: Array<{
+    light_id: string;
+    color_hex: string;
+    brightness: number;
+  }>;
+}
+
+/**
+ * Run a multi-phase animation loop across lights.
+ * Cycles through phases, applying each one with a Hue transition (dynamics.duration),
+ * then waiting for the phase duration before moving to the next.
+ * Returns when all cycles complete or the animation is aborted.
+ */
+export async function runAnimation(
+  phases: AnimationPhase[],
+  durationPerPhase: number,
+  transitionTime: number,
+  cycles: number
+): Promise<{ completed: boolean; phasesApplied: number }> {
+  // Stop any existing animation first
+  stopAnimation();
+
+  const controller = new AbortController();
+  activeAnimationAbort = controller;
+  const signal = controller.signal;
+
+  let phasesApplied = 0;
+
+  try {
+    for (let cycle = 0; cycle < cycles; cycle++) {
+      for (const phase of phases) {
+        if (signal.aborted) {
+          return { completed: false, phasesApplied };
+        }
+
+        // Apply this phase to all lights in parallel
+        await Promise.allSettled(
+          phase.lights.map(async (light) => {
+            const state: LightStateUpdate = {
+              on: { on: true },
+              dimming: { brightness: light.brightness },
+              color: { xy: hexToXy(light.color_hex) },
+              dynamics: { duration: transitionTime },
+            };
+            await setLightState(light.light_id, state);
+          })
+        );
+        phasesApplied++;
+
+        // Wait for the phase duration before moving to the next
+        if (signal.aborted) {
+          return { completed: false, phasesApplied };
+        }
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(resolve, durationPerPhase);
+          signal.addEventListener(
+            "abort",
+            () => {
+              clearTimeout(timer);
+              reject(new Error("aborted"));
+            },
+            { once: true }
+          );
+        }).catch(() => {
+          // Aborted during wait — that's fine
+        });
+      }
+    }
+
+    activeAnimationAbort = null;
+    return { completed: true, phasesApplied };
+  } catch {
+    activeAnimationAbort = null;
+    return { completed: false, phasesApplied };
+  }
+}
+
+/**
+ * Set a native Hue effect on a single light (e.g. "candle", "fire", "prism").
+ * Pass "no_effect" to stop effects.
+ */
+export async function setLightEffect(
+  lightId: string,
+  effect: string
+): Promise<void> {
+  const state: LightStateUpdate = {
+    effects: { effect },
+  };
+  // Also turn the light on if starting an effect
+  if (effect !== "no_effect") {
+    state.on = { on: true };
+  }
+  await setLightState(lightId, state);
+}
+
+/**
+ * Set a native Hue effect on all lights.
+ */
+export async function setAllLightsEffect(
+  effect: string
+): Promise<{ succeeded: number; failed: number; errors: string[] }> {
+  const lights = await listLights();
+  const results = { succeeded: 0, failed: 0, errors: [] as string[] };
+
+  await Promise.allSettled(
+    lights.map(async (light) => {
+      try {
+        await setLightEffect(light.id, effect);
+        results.succeeded++;
+      } catch (err) {
+        results.failed++;
+        results.errors.push(
+          `${light.metadata.name}: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    })
+  );
+
+  return results;
+}
+
+/**
+ * Generic CLIP v2 API passthrough.
+ * Allows making arbitrary requests to the Hue CLIP v2 API.
+ * The `path` should be relative to `/route/clip/v2/` (e.g. "resource/light", "resource/scene/{id}").
+ */
+export async function hueApiPassthrough(
+  method: string,
+  path: string,
+  body?: unknown
+): Promise<{ status: number; data: unknown }> {
+  const { accessToken, username } = await getCredentials();
+
+  // Build the full URL — callers pass paths like "resource/light/{id}"
+  // The hueRequest helper prepends RESOURCE_URL which is already .../clip/v2/resource,
+  // so we go directly to the base clip/v2 endpoint instead.
+  const baseUrl = "https://api.meethue.com/route/clip/v2";
+  const url = `${baseUrl}/${path.replace(/^\/+/, "")}`;
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${accessToken}`,
+    "Content-Type": "application/json",
+  };
+
+  if (username) {
+    headers["hue-application-key"] = username;
+  }
+
+  const fetchOptions: RequestInit = {
+    method: method.toUpperCase(),
+    headers,
+  };
+
+  if (body !== undefined && (method.toUpperCase() === "PUT" || method.toUpperCase() === "POST")) {
+    fetchOptions.body = typeof body === "string" ? body : JSON.stringify(body);
+  }
+
+  const response = await fetch(url, fetchOptions);
+
+  // Try to parse as JSON, fall back to text
+  let responseData: unknown;
+  const contentType = response.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    responseData = await response.json();
+  } else {
+    responseData = await response.text();
+  }
+
+  return {
+    status: response.status,
+    data: responseData,
   };
 }
 

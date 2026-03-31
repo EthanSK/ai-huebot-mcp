@@ -86,6 +86,8 @@ export interface LightStateUpdate {
   on?: { on: boolean };
   dimming?: { brightness: number };
   color?: { xy: { x: number; y: number } };
+  dynamics?: { duration: number };
+  effects?: { effect: string };
 }
 
 export interface VibeLight {

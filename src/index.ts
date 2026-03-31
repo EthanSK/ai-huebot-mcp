@@ -13,7 +13,14 @@ import {
   activateScene,
   hexToXy,
   formatLightInfo,
+  hueApiPassthrough,
+  runAnimation,
+  stopAnimation,
+  isAnimationRunning,
+  setLightEffect,
+  setAllLightsEffect,
 } from "./hue-api.js";
+import type { AnimationPhase } from "./hue-api.js";
 import {
   saveVibe,
   listSavedVibes,
@@ -72,6 +79,56 @@ server.tool(
           {
             type: "text" as const,
             text: `Authorization failed: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// --- hue_api (generic CLIP v2 passthrough) ---
+server.tool(
+  "hue_api",
+  "Make an arbitrary Philips Hue CLIP v2 API call. This gives full unrestricted access to the Hue API. The path is relative to /route/clip/v2/ (e.g. 'resource/light', 'resource/light/{id}', 'resource/scene', 'resource/grouped_light/{id}', 'resource/room', 'resource/zone', 'resource/bridge'). See https://developers.meethue.com/develop/hue-api-v2/ for full API docs.",
+  {
+    method: z
+      .enum(["GET", "PUT", "POST", "DELETE"])
+      .describe("HTTP method"),
+    path: z
+      .string()
+      .describe(
+        "API path after /route/clip/v2/ (e.g. 'resource/light', 'resource/light/{id}', 'resource/scene', 'resource/grouped_light/{id}')"
+      ),
+    body: z
+      .record(z.string(), z.unknown())
+      .optional()
+      .describe("Optional JSON body for PUT/POST requests"),
+  },
+  async ({ method, path, body }) => {
+    try {
+      const result = await hueApiPassthrough(method, path, body);
+
+      const text =
+        typeof result.data === "string"
+          ? result.data
+          : JSON.stringify(result.data, null, 2);
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `HTTP ${result.status}\n\n${text}`,
+          },
+        ],
+        isError: result.status >= 400,
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error calling Hue API: ${err instanceof Error ? err.message : String(err)}`,
           },
         ],
         isError: true,
@@ -906,6 +963,257 @@ server.tool(
           {
             type: "text" as const,
             text: `Error updating user profile: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// --- animate_lights ---
+server.tool(
+  "animate_lights",
+  "Animate lights through a sequence of color phases. Each phase defines colors/brightness for each light, and the animation cycles through them with smooth transitions. Great for dynamic vibes like 'lava flow', 'ocean waves', 'disco', etc. The AI should generate creative phases based on the vibe description. The animation runs in the background and can be stopped with stop_animation.",
+  {
+    phases: z
+      .array(
+        z.object({
+          lights: z
+            .array(
+              z.object({
+                light_id: z.string().describe("The light ID"),
+                color_hex: z
+                  .string()
+                  .describe("Hex color for this light in this phase (e.g. #FF6B35)"),
+                brightness: z
+                  .number()
+                  .min(0)
+                  .max(100)
+                  .describe("Brightness percentage (0-100)"),
+              })
+            )
+            .describe("Light settings for this phase"),
+        })
+      )
+      .describe(
+        "Array of animation phases. The animation cycles through these in order. Use at least 2-3 phases for a good effect."
+      ),
+    duration_per_phase: z
+      .number()
+      .min(500)
+      .max(30000)
+      .optional()
+      .describe("How long each phase lasts in milliseconds (default: 3000)"),
+    transition_time: z
+      .number()
+      .min(0)
+      .max(30000)
+      .optional()
+      .describe(
+        "How long the transition between phases takes in milliseconds, using Hue dynamics (default: 2500)"
+      ),
+    cycles: z
+      .number()
+      .min(1)
+      .max(100)
+      .optional()
+      .describe(
+        "How many times to loop through all phases (default: 5)"
+      ),
+    vibe: z
+      .string()
+      .optional()
+      .describe("Optional vibe description for context (e.g. 'lava flow', 'aurora borealis')"),
+  },
+  async ({ phases, duration_per_phase, transition_time, cycles, vibe }) => {
+    try {
+      const durationMs = duration_per_phase ?? 3000;
+      const transitionMs = transition_time ?? 2500;
+      const numCycles = cycles ?? 5;
+
+      if (phases.length < 1) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "At least 1 phase is required for an animation.",
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      const vibeLabel = vibe ? `"${vibe}" ` : "";
+
+      // Run the animation in the background (non-blocking)
+      // We kick it off and return immediately so the MCP call doesn't block
+      const animationPromise = runAnimation(
+        phases as AnimationPhase[],
+        durationMs,
+        transitionMs,
+        numCycles
+      );
+
+      // Wait a short moment for the first phase to apply so we can confirm it started
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      if (!isAnimationRunning()) {
+        // Animation already finished or failed to start — await the result
+        const result = await animationPromise;
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: result.completed
+                ? `Animation ${vibeLabel}completed! Applied ${result.phasesApplied} phase transitions across ${numCycles} cycle(s).`
+                : `Animation ${vibeLabel}stopped after ${result.phasesApplied} phase(s).`,
+            },
+          ],
+        };
+      }
+
+      // Animation is running in the background — let it continue
+      // Don't await the promise; it runs independently
+      animationPromise.catch(() => {
+        // Swallow errors from background animation
+      });
+
+      const totalDuration = (durationMs * phases.length * numCycles) / 1000;
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Animation ${vibeLabel}started! Cycling through ${phases.length} phase(s) for ${numCycles} cycle(s) (~${Math.round(totalDuration)}s total). Phase duration: ${durationMs}ms, transition: ${transitionMs}ms. Use stop_animation to stop it early.`,
+          },
+        ],
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error starting animation: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// --- set_effect ---
+server.tool(
+  "set_effect",
+  "Set a native Hue light effect. Supported effects: 'candle' (candle flicker), 'fire' (fireplace), 'prism' (color cycling/rainbow). Use 'no_effect' to stop. Can target a specific light or all lights.",
+  {
+    effect: z
+      .enum(["candle", "fire", "prism", "no_effect"])
+      .describe(
+        "The effect to apply: 'candle' (flicker), 'fire' (fireplace), 'prism' (color cycling), or 'no_effect' to stop"
+      ),
+    light_id: z
+      .string()
+      .optional()
+      .describe(
+        "Optional specific light ID. If omitted, applies to all lights."
+      ),
+  },
+  async ({ effect, light_id }) => {
+    try {
+      if (light_id) {
+        await setLightEffect(light_id, effect);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text:
+                effect === "no_effect"
+                  ? `Effect stopped on light ${light_id}.`
+                  : `Effect "${effect}" applied to light ${light_id}.`,
+            },
+          ],
+        };
+      }
+
+      // Apply to all lights
+      const results = await setAllLightsEffect(effect);
+      let message =
+        effect === "no_effect"
+          ? `Effects stopped on ${results.succeeded} light(s).`
+          : `Effect "${effect}" applied to ${results.succeeded} light(s).`;
+      if (results.failed > 0) {
+        message += `\n${results.failed} failed:\n${results.errors.join("\n")}`;
+      }
+
+      return {
+        content: [{ type: "text" as const, text: message }],
+        isError: results.failed > 0,
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error setting effect: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+);
+
+// --- stop_animation ---
+server.tool(
+  "stop_animation",
+  "Stop any currently running animation or effect. Stops background phase animations started by animate_lights, and also clears any native Hue effects (candle, fire, prism) on all lights.",
+  async () => {
+    try {
+      const wasRunning = stopAnimation();
+      // Also clear native effects on all lights
+      const effectResults = await setAllLightsEffect("no_effect");
+
+      const parts: string[] = [];
+      if (wasRunning) {
+        parts.push("Background animation stopped.");
+      }
+      if (effectResults.succeeded > 0) {
+        parts.push(
+          `Native effects cleared on ${effectResults.succeeded} light(s).`
+        );
+      }
+      if (effectResults.failed > 0) {
+        parts.push(
+          `${effectResults.failed} light(s) failed to clear effects:\n${effectResults.errors.join("\n")}`
+        );
+      }
+
+      if (parts.length === 0) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "No animation or effects were running.",
+            },
+          ],
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: parts.join("\n"),
+          },
+        ],
+      };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error stopping animation: ${err instanceof Error ? err.message : String(err)}`,
           },
         ],
         isError: true,
